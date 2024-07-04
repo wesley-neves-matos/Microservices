@@ -1,0 +1,106 @@
+version: '3.4'
+
+networks:
+  catalognet:
+    name: catalognet
+
+services:
+  catalogdb:
+    container_name: catalogdb
+    image: mongo
+    ports:
+      - 27017:27017
+    volumes:
+      - ./Catalog.API/MongoVolume:/data/db
+    networks:
+      - catalognet
+  
+  catalog.api:
+    container_name: catalog.api
+    image: ${DOCKER_REGISTRY-}catalogapi
+    build:
+      context: .
+      dockerfile: Catalog.API/Dockerfile
+    environment:
+      - DatabaseSettings:ConnectionString=mongodb://catalogdb:27017
+    ports:
+      - 5000:8080
+    networks:
+      - catalognet
+    depends_on:
+      - catalogdb
+  
+  basketcache:
+    container_name: basketcache
+    image: redis
+    ports: 
+      - 6379:6379
+    networks:
+      - catalognet
+    volumes:
+      - ./Basket.API/RedisVolume:/data
+    
+  basket.api:
+    container_name: basket.api
+    image: ${DOCKER_REGISTRY-}basketapi
+    build:
+      context: .
+      dockerfile: Basket.API/Dockerfile
+    environment:
+      - CacheSettings:ConnectionString=basketcache:6379
+      - GrpcSettings:DiscountUrl=discount.grpc
+    ports:
+      - 5001:8080
+    networks:
+      - catalognet
+    depends_on:
+      - basketcache
+ 
+  discountdb:
+    container_name: discountdb
+    image: ${DOCKER_REGISTRY-}discountdb
+    build:
+      context: .
+      dockerfile: Discount.API/PostgresDocker/Dockerfile
+    restart: always
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin1234
+      - POSTGRES_DB=DiscountDb
+    ports:
+      - 5432:5432
+    networks:
+      - catalognet
+    volumes:
+      - ./Discount.API/PostgresVolume:/var/lib/postgresql/data
+
+  discount.api:
+    container_name: discount.api
+    image: ${DOCKER_REGISTRY-}discountapi
+    build:
+      context: .
+      dockerfile: Discount.API/Dockerfile
+    environment:
+      - DatabaseSettings:ConnectionString=Server=discountdb; Port=5432; Database=DiscountDb; User Id=admin; Password=admin1234;
+    ports:
+      - 5002:8080
+    networks:
+      - catalognet
+    depends_on:
+      - discountdb
+    
+  discount.grpc:
+    container_name: discount.grpc
+    image: ${DOCKER_REGISTRY-}discountgrpc
+    build:
+      context: .
+      dockerfile: Discount.Grpc/Dockerfile
+    environment:
+      - DatabaseSettings:ConnectionString=Server=discountdb; Port=5432; Database=DiscountDb; User Id=admin; Password=admin1234;
+    ports:
+      - 5003:8080
+    networks:
+      - catalognet
+    depends_on:
+      - discountdb
+  
